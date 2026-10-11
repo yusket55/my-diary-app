@@ -62,9 +62,10 @@ with col_left:
     # image_urls (配列) または古い互換性のための image_url を取得
     img_urls_raw = existing_data[0].get("image_urls")
     if img_urls_raw:
-      current_image_urls = (
-          img_urls_raw if isinstance(img_urls_raw, list) else [img_urls_raw]
-      )
+      if isinstance(img_urls_raw, list):
+        current_image_urls = img_urls_raw
+      else:
+        current_image_urls = [img_urls_raw]
     else:
       single_img = existing_data[0].get("image_url")
       if single_img:
@@ -73,10 +74,29 @@ with col_left:
   st.markdown("---")
   st.markdown("**📸 登録されている写真**")
 
-  # 登録済み写真を縦に並べて表示
+  # 登録済み写真を縦に並べて表示 ＆ 個別削除ボタン機能
   if current_image_urls:
-    for url in current_image_urls:
+    updated_image_urls = list(current_image_urls)
+    to_remove = None
+
+    for i, url in enumerate(current_image_urls):
       st.image(url, use_container_width=True)
+      if st.button("🗑️ この写真を削除する", key=f"del_img_{i}"):
+        to_remove = url
+
+    if to_remove:
+      updated_image_urls.remove(to_remove)
+      try:
+        supabase.table("diaries").upsert({
+            "diary_date": date_str,
+            "content": current_content,
+            "image_urls": updated_image_urls
+        }).execute()
+        st.success("写真を削除しました！")
+        st.rerun()
+      except Exception as e:
+        st.error("写真の削除に失敗しました:")
+        st.exception(e)
   else:
       st.info("この日の写真はまだ登録されていません。")
 
@@ -90,7 +110,7 @@ with col_right:
         height=300,
     )
 
-    # 複数ファイルのアップロード（accept_multiple_files=True で複数選択が可能に）
+    # 複数ファイルのアップロード（accept_multiple_files=True で複数選択が可能）
     uploaded_files = st.file_uploader(
         "写真を複数選択してアップロード（PNG, JPGなど）",
         type=["png", "jpg", "jpeg"],
