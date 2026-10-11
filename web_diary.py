@@ -41,13 +41,18 @@ with col_left:
   date_str = selected_date.strftime("%Y-%m-%d")
 
   # データベースから選択した日付のデータを取得
-  response = (
-      supabase.table("diaries")
-      .select("*")
-      .eq("diary_date", date_str)
-      .execute()
-  )
-  existing_data = response.data
+  try:
+    response = (
+        supabase.table("diaries")
+        .select("*")
+        .eq("diary_date", date_str)
+        .execute()
+    )
+    existing_data = response.data
+  except Exception as e:
+    st.error("データベースからのデータ取得に失敗しました:")
+    st.exception(e)
+    existing_data = []
 
   current_content = ""
   current_image_urls = []
@@ -73,7 +78,7 @@ with col_left:
     for url in current_image_urls:
       st.image(url, use_container_width=True)
   else:
-    st.info("この日の写真はまだ登録されていません。")
+      st.info("この日の写真はまだ登録されていません。")
 
 with col_right:
   st.subheader(f"✍️ {date_str} の日記")
@@ -127,7 +132,8 @@ with col_right:
             if public_url:
               new_image_urls.append(public_url)
           except Exception as e:
-            st.error(f"写真のアップロードに失敗しました: {e}")
+            st.error(f"写真のアップロードに失敗しました ({uploaded_file.name}):")
+            st.exception(e)
 
       # データベースに保存（upsert）
       upsert_data = {
@@ -141,4 +147,5 @@ with col_right:
         st.success("日記と写真を保存しました！")
         st.rerun()
       except Exception as e:
-        st.error(f"データベースへの保存に失敗しました: {e}")
+        st.error("データベースへの保存に失敗しました:")
+        st.exception(e)
