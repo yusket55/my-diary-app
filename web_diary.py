@@ -81,21 +81,21 @@ with col_left:
 
     for i, url in enumerate(current_image_urls):
       st.image(url, use_container_width=True)
-      if st.button("🗑️ この写真を削除する", key=f"del_img_{i}"):
+      if st.button("🗑️ この写真を削除する", key=f"del_img_{i}_{url}"):
         to_remove = url
 
     if to_remove:
       updated_image_urls.remove(to_remove)
       try:
-        supabase.table("diaries").upsert({
-            "diary_date": date_str,
-            "content": current_content,
+        # 確実にデータを更新するため .update() を使用
+        supabase.table("diaries").update({
             "image_urls": updated_image_urls
-        }).execute()
+        }).eq("diary_date", date_str).execute()
+        
         st.success("写真を削除しました！")
         st.rerun()
       except Exception as e:
-        st.error("写真の削除に失敗しました:")
+        st.error("写真の削除に失敗しました（詳細エラー）:")
         st.exception(e)
   else:
       st.info("この日の写真はまだ登録されていません。")
