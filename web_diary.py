@@ -58,16 +58,18 @@ with col_left:
   current_image_urls = []
 
   if existing_data:
-    current_content = existing_data[0].get("content", "")
-    # image_urls (配列) または古い互換性のための image_url を取得
-    img_urls_raw = existing_data[0].get("image_urls")
+    # 複数データがある場合は最新（または最初）のものを取得
+    latest_record = existing_data[-1]
+    current_content = latest_record.get("content", "")
+    
+    img_urls_raw = latest_record.get("image_urls")
     if img_urls_raw:
       if isinstance(img_urls_raw, list):
         current_image_urls = img_urls_raw
       else:
         current_image_urls = [img_urls_raw]
     else:
-      single_img = existing_data[0].get("image_url")
+      single_img = latest_record.get("image_url")
       if single_img:
         current_image_urls = [single_img]
 
@@ -102,7 +104,6 @@ with col_left:
 with col_right:
   st.subheader(f"✍️ {date_str} の日記")
 
-  # フォームを使わず、直接ウィジェットを配置して安定性を向上
   content_input = st.text_area(
       "今日の出来事や気持ちを書いてください",
       value=current_content,
@@ -153,15 +154,29 @@ with col_right:
           st.error(f"写真のアップロードに失敗しました ({uploaded_file.name}):")
           st.exception(e)
 
-    # データベースに保存（upsert）
-    upsert_data = {
-        "diary_date": date_str,
-        "content": content_input,
-        "image_urls": new_image_urls,
-    }
-
+    # データベースへの保存処理（存在すればUPDATE、なければINSERT）
     try:
-      supabase.table("diaries").upsert(upsert_data).execute()
+      check_res = (
+          supabase.table("diaries")
+          .select("id")
+          .eq("diary_date", date_str)
+          .execute()
+      )
+
+      if check_res.data and len(check_res.data) > 0:
+        # すでにデータがある場合は更新
+        supabase.table("diaries").update({
+            "content": content_input,
+            "image_urls": new_image_urls,
+        }).eq("diary_date", date_str).execute()
+      else:
+        # データがない場合は新規追加
+        supabase.table("diaries").insert({
+            "diary_date": date_str,
+            "content": content_input,
+            "image_urls": new_image_urls,
+        }).execute()
+
       st.success("日記と写真を保存しました！")
       st.rerun()
     except Exception as e:
