@@ -1,5 +1,6 @@
+import csv
 import datetime
-from io import BytesIO
+from io import BytesIO, StringIO
 import os
 from dotenv import load_dotenv
 import streamlit as st
@@ -58,7 +59,6 @@ with col_left:
   current_image_urls = []
 
   if existing_data:
-    # 複数データがある場合は最新（または最初）のものを取得
     latest_record = existing_data[-1]
     current_content = latest_record.get("content", "")
     
@@ -101,6 +101,35 @@ with col_left:
   else:
       st.info("この日の写真はまだ登録されていません。")
 
+  # --- 新機能：CSVデータ書き出しセクション ---
+  st.markdown("---")
+  st.markdown("**⚙️ データ管理（バックアップ）**")
+  try:
+    all_res = supabase.table("diaries").select("*").execute()
+    all_data = all_res.data
+    if all_data:
+      output = StringIO()
+      writer = csv.writer(output)
+      writer.writerow(["diary_date", "content", "image_urls"])
+      for row in all_data:
+        d_date = row.get("diary_date", "")
+        d_content = row.get("content", "").replace("\n", " ")
+        d_urls = row.get("image_urls", [])
+        urls_str = ",".join(d_urls) if isinstance(d_urls, list) else str(d_urls)
+        writer.writerow([d_date, d_content, urls_str])
+      
+      csv_data = output.getvalue()
+      st.download_button(
+          label="📥 全日記データをCSVでダウンロード",
+          data=csv_data,
+          file_name=f"diary_backup_{datetime.date.today().strftime('%Y%m%d')}.csv",
+          mime="text/csv",
+      )
+    else:
+      st.caption("まだ保存された日記データがありません。")
+  except Exception as e:
+    st.caption("CSVエクスポートの準備中...")
+
 with col_right:
   st.subheader(f"✍️ {date_str} の日記")
 
@@ -120,10 +149,8 @@ with col_right:
   )
 
   if st.button("💾 この内容で保存する", type="primary"):
-    # 既存の写真をベースにする
     new_image_urls = list(current_image_urls)
 
-    # 新しくアップロードされたファイルがある場合、順番にSupabase Storageへ保存
     if uploaded_files:
       for uploaded_file in uploaded_files:
         file_bytes = uploaded_file.read()
@@ -131,13 +158,11 @@ with col_right:
         storage_path = f"diary_images/{file_name}"
 
         try:
-          # Supabase Storageへアップロード
           supabase.storage.from_("diary-images").upload(
               path=storage_path,
               file=file_bytes,
               file_options={"content-type": uploaded_file.type},
           )
-          # 公開URLを取得
           url_data = supabase.storage.from_("diary-images").get_public_url(
               storage_path
           )
@@ -154,7 +179,6 @@ with col_right:
           st.error(f"写真のアップロードに失敗しました ({uploaded_file.name}):")
           st.exception(e)
 
-    # データベースへの保存処理（存在すればUPDATE、なければINSERT）
     try:
       check_res = (
           supabase.table("diaries")
@@ -164,15 +188,13 @@ with col_right:
       )
 
       if check_res.data and len(check_res.data) > 0:
-        # すでにデータがある場合は更新
         supabase.table("diaries").update({
             "content": content_input,
             "image_urls": new_image_urls,
         }).eq("diary_date", date_str).execute()
       else:
-        # データがない場合は新規追加
         supabase.table("diaries").insert({
-            "diary_date": date_str,
+            "diary_date", date_str,
             "content": content_input,
             "image_urls": new_image_urls,
         }).execute()
