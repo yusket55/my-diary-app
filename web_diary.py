@@ -1,7 +1,8 @@
 import csv
 import datetime
-from io import BytesIO, StringIO
+import io
 import os
+import zipfile
 from dotenv import load_dotenv
 import streamlit as st
 from supabase import create_client
@@ -94,41 +95,61 @@ with col_left:
         }).eq("diary_date", date_str).execute()
         
         st.success("写真を削除しました！")
-        st.reron = st.rerun() # type: ignore
+        st.rerun()
       except Exception as e:
         st.error("写真の削除に失敗しました:")
         st.exception(e)
   else:
       st.info("この日の写真はまだ登録されていません。")
 
-  # --- CSVデータ書き出しセクション ---
+  # --- CSV ＆ 写真一括ZIPバックアップセクション ---
   st.markdown("---")
-  st.markdown("**⚙️ データ管理（バックアップ）**")
+  st.markdown("**⚙️ データ管理（完全バックアップ）**")
   try:
     all_res = supabase.table("diaries").select("*").execute()
     all_data = all_res.data
-    if all_data:
-      output = StringIO()
-      writer = csv.writer(output)
-      writer.writerow(["diary_date", "content", "image_urls"])
-      for row in all_data:
-        d_date = row.get("diary_date", "")
-        d_content = row.get("content", "").replace("\n", " ")
-        d_urls = row.get("image_urls", [])
-        urls_str = ",".join(d_urls) if isinstance(d_urls, list) else str(d_urls)
-        writer.writerow([d_date, d_content, urls_str])
+    
+    # メモリ上でZIPファイルを作成する処理
+    zip_buffer = io.BytesIO()
+    with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
       
-      csv_data = output.getvalue()
-      st.download_button(
-          label="📥 全日記データをCSVでダウンロード",
-          data=csv_data,
-          file_name=f"diary_backup_{datetime.date.today().strftime('%Y%m%d')}.csv",
-          mime="text/csv",
-      )
-    else:
-      st.caption("まだ保存された日記データがありません。")
+      # 1. Excelで文字化けしないように BOM ('\ufeff') を付与したCSVを作成
+      csv_output = io.StringIO()
+      csv_output.write('\ufeff') 
+      writer = csv.writer(csv_output)
+      writer.writerow(["diary_date", "content", "image_urls"])
+      if all_data:
+        for row in all_data:
+          d_date = row.get("diary_date", "")
+          d_content = row.get("content", "")
+          d_urls = row.get("image_urls", [])
+          urls_str = ",".join(d_urls) if isinstance(d_urls, list) else str(d_urls)
+          writer.writerow([d_date, d_content, urls_str])
+      zip_file.writestr("diaries.csv", csv_output.getvalue())
+
+      # 2. Supabase Storageにある写真をすべて取得してZIP内の 'images' フォルダに同梱
+      try:
+        files = supabase.storage.from_("diary-images").list("diary_images")
+        if files:
+          for file_info in files:
+            file_name = file_info.get("name")
+            if file_name and file_name != ".emptyFolderPlaceholder":
+              file_path = f"diary_images/{file_name}"
+              res_bytes = supabase.storage.from_("diary-images").download(file_path)
+              if res_bytes:
+                zip_file.writestr(f"images/{file_name}", res_bytes)
+      except Exception:
+        pass
+
+    zip_data = zip_buffer.getvalue()
+    st.download_button(
+        label="📥 全データ（CSV ＋ 写真画像）をZIPでダウンロード",
+        data=zip_data,
+        file_name=f"diary_backup_all_{datetime.date.today().strftime('%Y%m%d')}.zip",
+        mime="application/zip",
+    )
   except Exception as e:
-    st.caption("CSVエクスポートの準備中...")
+    st.caption("バックアップ機能の準備中...")
 
 with col_right:
   st.subheader(f"✍️ {date_str} の日記")
@@ -193,7 +214,6 @@ with col_right:
             "image_urls": new_image_urls,
         }).eq("diary_date", date_str).execute()
       else:
-        # 修正箇所：ここを正しいコロンに変更しました
         supabase.table("diaries").insert({
             "diary_date": date_str,
             "content": content_input,
