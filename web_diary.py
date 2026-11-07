@@ -94,14 +94,14 @@ with col_left:
         }).eq("diary_date", date_str).execute()
         
         st.success("写真を削除しました！")
-        st.rerun()
+        st.reron = st.rerun() # type: ignore
       except Exception as e:
         st.error("写真の削除に失敗しました:")
         st.exception(e)
   else:
       st.info("この日の写真はまだ登録されていません。")
 
-  # --- 新機能：CSVデータ書き出しセクション ---
+  # --- CSVデータ書き出しセクション ---
   st.markdown("---")
   st.markdown("**⚙️ データ管理（バックアップ）**")
   try:
@@ -193,8 +193,9 @@ with col_right:
             "image_urls": new_image_urls,
         }).eq("diary_date", date_str).execute()
       else:
+        # 修正箇所：ここを正しいコロンに変更しました
         supabase.table("diaries").insert({
-            "diary_date", date_str,
+            "diary_date": date_str,
             "content": content_input,
             "image_urls": new_image_urls,
         }).execute()
